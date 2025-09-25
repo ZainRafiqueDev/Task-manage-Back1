@@ -13,7 +13,9 @@ import {
   Filter,
   Search,
   RefreshCw,
-  XCircle
+  XCircle,
+  Users,
+  Briefcase
 } from 'lucide-react';
 
 const TeamLeadProjectsTab = () => {
@@ -26,7 +28,9 @@ const TeamLeadProjectsTab = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [error, setError] = useState('');
+  const [stats, setStats] = useState(null);
 
   // Debounce search term
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -38,69 +42,103 @@ const TeamLeadProjectsTab = () => {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Fetch available projects
+  // Fetch available projects (created by admin, not yet picked by any team lead)
   const fetchAvailableProjects = async () => {
     try {
       setError('');
       const params = new URLSearchParams();
+      
       if (statusFilter !== 'all') params.append('status', statusFilter);
       if (priorityFilter !== 'all') params.append('priority', priorityFilter);
+      if (categoryFilter !== 'all') params.append('category', categoryFilter);
       if (debouncedSearchTerm) params.append('search', debouncedSearchTerm);
 
-      const response = await api.get(`/teamlead/projects/available?${params}`);
-      setProjects(response.data.projects || []);
+      const response = await api.get(`/projects/available?${params}`);
+      
+      if (response.data.success) {
+        setProjects(response.data.projects || []);
+      } else {
+        setProjects([]);
+        setError(response.data.message || 'Failed to fetch available projects');
+      }
     } catch (error) {
       console.error('Error fetching available projects:', error);
-      setError('Failed to fetch available projects');
+      const errorMessage = error.response?.data?.message || 'Failed to fetch available projects';
+      setError(errorMessage);
       setProjects([]);
     }
   };
 
-  // Fetch my projects
+  // Fetch my projects (projects I have picked)
   const fetchMyProjects = async () => {
     try {
       setError('');
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.append('status', statusFilter);
       if (priorityFilter !== 'all') params.append('priority', priorityFilter);
+      if (categoryFilter !== 'all') params.append('category', categoryFilter);
 
-      const response = await api.get(`/teamlead/projects/mine?${params}`);
-      setMyProjects(response.data.projects || []);
+      const response = await api.get(`/projects/mine?${params}`);
+      
+      if (response.data.success) {
+
+
+
+
+
+
+
+
+        
+        setMyProjects(response.data.projects || []);
+        setStats(response.data.stats || null);
+      } else {
+        setMyProjects([]);
+        setStats(null);
+        setError(response.data.message || 'Failed to fetch your projects');
+      }
     } catch (error) {
       console.error('Error fetching my projects:', error);
-      setError('Failed to fetch your projects');
+      const errorMessage = error.response?.data?.message || 'Failed to fetch your projects';
+      setError(errorMessage);
       setMyProjects([]);
+      setStats(null);
     }
   };
 
   // Pick a project
-  const pickProject = async (projectId) => {
-    try {
-      setActionLoading(true);
-      setError('');
-      
-      const response = await api.put(`/teamlead/projects/${projectId}/pick`);
-      
-      if (response.data.success) {
-        // Refresh both lists
-        await Promise.all([
-          fetchAvailableProjects(),
-          fetchMyProjects()
-        ]);
-        
-        // Show success message
-        setError(''); // Clear any previous errors
-        alert(`✅ ${response.data.message}`);
-      }
-    } catch (error) {
-      console.error('Error picking project:', error);
-      const errorMessage = error.response?.data?.message || 'Failed to pick project. Please try again.';
-      setError(errorMessage);
-      alert(`❌ ${errorMessage}`);
-    } finally {
-      setActionLoading(false);
+ const pickProject = async (projectId) => {
+  try {
+    setActionLoading(true);
+    setError('');
+
+    const response = await api.put(`/projects/${projectId}/pick`);
+
+    if (response.data.success) {
+      // Refresh both lists after picking a project
+      await Promise.all([fetchAvailableProjects(), fetchMyProjects()]);
+
+      // Use the sanitized project from backend
+      const projectName = response.data.project?.projectName || 'Project';
+      alert(`✅ Successfully picked "${projectName}"`);
+    } else {
+      const message = response.data.message || 'Failed to pick project';
+      setError(message);
+      alert(`❌ ${message}`);
     }
-  };
+  } catch (error) {
+    console.error('Error picking project:', error);
+
+    const errorMessage =
+      error.response?.data?.message ||
+      'Failed to pick project. Please try again.';
+    setError(errorMessage);
+    alert(`❌ ${errorMessage}`);
+  } finally {
+    setActionLoading(false);
+  }
+};
+
 
   // Release a project
   const releaseProject = async (projectId, projectName) => {
@@ -112,7 +150,7 @@ const TeamLeadProjectsTab = () => {
       setActionLoading(true);
       setError('');
       
-      const response = await api.put(`/teamlead/projects/${projectId}/release`, { 
+      const response = await api.put(`/projects/${projectId}/release`, { 
         reason: reason.trim() || undefined 
       });
       
@@ -124,6 +162,9 @@ const TeamLeadProjectsTab = () => {
         ]);
         
         alert(`✅ ${response.data.message}`);
+      } else {
+        setError(response.data.message || 'Failed to release project');
+        alert(`❌ ${response.data.message || 'Failed to release project'}`);
       }
     } catch (error) {
       console.error('Error releasing project:', error);
@@ -144,7 +185,7 @@ const TeamLeadProjectsTab = () => {
         fetchMyProjects()
       ]).finally(() => setLoading(false));
     }
-  }, [user, debouncedSearchTerm, statusFilter, priorityFilter]);
+  }, [user, debouncedSearchTerm, statusFilter, priorityFilter, categoryFilter]);
 
   // Get status badge color
   const getStatusColor = (status) => {
@@ -180,6 +221,24 @@ const TeamLeadProjectsTab = () => {
     });
   };
 
+  // Get creator name - handle different possible formats
+  const getCreatorName = (createdBy) => {
+    if (!createdBy) return 'Unknown';
+    
+    // Handle different possible formats from controller
+    if (createdBy.firstName && createdBy.lastName) {
+      return `${createdBy.firstName} ${createdBy.lastName}`;
+    }
+    if (createdBy.name) {
+      return createdBy.name;
+    }
+    if (createdBy.email) {
+      return createdBy.email;
+    }
+    
+    return 'Unknown';
+  };
+
   const ProjectCard = ({ project, isMyProject = false }) => (
     <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 hover:shadow-lg transition-shadow">
       <div className="flex justify-between items-start mb-4">
@@ -191,11 +250,18 @@ const TeamLeadProjectsTab = () => {
             <User className="w-4 h-4 mr-1" />
             {project.clientName}
           </p>
+          {/* Show who created the project */}
+          {project.createdBy && (
+            <p className="text-gray-500 text-xs flex items-center mt-1">
+              <Briefcase className="w-3 h-3 mr-1" />
+              Created by: {getCreatorName(project.createdBy)}
+            </p>
+          )}
         </div>
         
         <div className="flex flex-col gap-2 ml-4">
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
-            {project.status}
+            {project.status.replace('-', ' ')}
           </span>
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(project.priority)}`}>
             {project.priority}
@@ -220,10 +286,33 @@ const TeamLeadProjectsTab = () => {
           <span className="capitalize">{project.category}</span>
         </div>
 
-        {project.estimatedHours && (
+        {project.estimatedHours && project.estimatedHours > 0 && (
           <div className="flex items-center text-gray-600">
             <Clock className="w-4 h-4 mr-1" />
             <span>{project.estimatedHours}h estimated</span>
+          </div>
+        )}
+
+        {/* Show hourly rate for hourly projects */}
+        {project.category === 'hourly' && project.hourlyRate && (
+          <div className="flex items-center text-gray-600">
+            <span className="text-green-600 font-medium">${project.hourlyRate}/hr</span>
+          </div>
+        )}
+
+        {/* Show team lead info for my projects */}
+        {isMyProject && (
+          <div className="flex items-center text-gray-600">
+            <Users className="w-4 h-4 mr-1" />
+            <span>You are leading</span>
+          </div>
+        )}
+
+        {/* Show employee count for my projects */}
+        {isMyProject && project.employees && project.employees.length > 0 && (
+          <div className="flex items-center text-gray-600">
+            <Users className="w-4 h-4 mr-1" />
+            <span>{project.employees.length} team member{project.employees.length !== 1 ? 's' : ''}</span>
           </div>
         )}
 
@@ -262,17 +351,10 @@ const TeamLeadProjectsTab = () => {
             </button>
           ) : (
             <div className="flex gap-2 items-center">
-              <div className="flex flex-col gap-1">
-                <button className="bg-green-100 text-green-800 px-3 py-1 rounded text-xs font-medium flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3" />
-                  My Project
-                </button>
-                {project.employees && project.employees.length > 0 && (
-                  <span className="text-xs text-gray-500">
-                    {project.employees.length} team member{project.employees.length !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
+              <button className="bg-green-100 text-green-800 px-3 py-1 rounded text-xs font-medium flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" />
+                My Project
+              </button>
               
               {/* Release Project Button - only show if project can be released */}
               {!['completed', 'cancelled'].includes(project.status) && (
@@ -309,8 +391,17 @@ const TeamLeadProjectsTab = () => {
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
-          <p className="text-gray-600">Manage and pick projects to lead</p>
+          <h1 className="text-2xl font-bold text-gray-900">Project Management</h1>
+          <p className="text-gray-600">Browse available projects and manage your assigned projects</p>
+          {/* Show stats for my projects */}
+          {activeTab === 'my-projects' && stats && (
+            <div className="flex gap-4 mt-2 text-sm text-gray-600">
+              <span>Total: {stats.total}</span>
+              <span>In Progress: {stats.inProgress}</span>
+              <span>Completed: {stats.completed}</span>
+              {stats.onHold > 0 && <span>On Hold: {stats.onHold}</span>}
+            </div>
+          )}
         </div>
         
         <button
@@ -355,6 +446,7 @@ const TeamLeadProjectsTab = () => {
             }`}
           >
             Available Projects ({projects.length})
+            <span className="text-xs text-gray-400 block">Ready to pick</span>
           </button>
           <button
             onClick={() => setActiveTab('my-projects')}
@@ -365,13 +457,14 @@ const TeamLeadProjectsTab = () => {
             }`}
           >
             My Projects ({myProjects.length})
+            <span className="text-xs text-gray-400 block">Projects you're leading</span>
           </button>
         </nav>
       </div>
 
       {/* Filters */}
       <div className="bg-gray-50 p-4 rounded-lg mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
@@ -408,9 +501,23 @@ const TeamLeadProjectsTab = () => {
             <option value="urgent">Urgent</option>
           </select>
 
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="all">All Categories</option>
+            <option value="fixed">Fixed Price</option>
+            <option value="hourly">Hourly</option>
+            <option value="milestone">Milestone</option>
+          </select>
+
           <div className="flex items-center text-sm text-gray-600">
             <Filter className="w-4 h-4 mr-1" />
-            Showing {activeTab === 'available' ? projects.length : myProjects.length} projects
+            {activeTab === 'available' 
+              ? `${projects.length} available` 
+              : `${myProjects.length} my projects`
+            }
           </div>
         </div>
       </div>
@@ -436,6 +543,9 @@ const TeamLeadProjectsTab = () => {
                 <FolderOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600">
                   {error ? "Error loading projects" : "No available projects to pick"}
+                </p>
+                <p className="text-gray-500 text-sm mt-2">
+                  Projects marked as visible to team leads will appear here
                 </p>
                 {error && (
                   <button

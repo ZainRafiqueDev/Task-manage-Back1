@@ -18,7 +18,10 @@ import {
   EyeOff,
   Calendar,
   Clock,
-  MessageSquare
+  MessageSquare,
+  CheckCircle,
+  XCircle,
+  RotateCcw
 } from 'lucide-react';
 import api from '../../../../services/api';
 
@@ -28,6 +31,9 @@ const NotificationTab = () => {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('view');
   const [stats, setStats] = useState({ total: 0, read: 0, unread: 0 });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
   const [pagination, setPagination] = useState({
     current: 1,
     pages: 1,
@@ -39,12 +45,13 @@ const NotificationTab = () => {
   const [filters, setFilters] = useState({
     type: 'all',
     search: '',
-    page: 1
+    page: 1,
+    status: 'all' // Add status filter for read/unread
   });
 
   // Form states
   const [sendForm, setSendForm] = useState({
-    type: 'specific',
+    type: 'all',
     receivers: [],
     message: '',
     notificationType: 'info',
@@ -70,21 +77,50 @@ const NotificationTab = () => {
     urgent: 'border-l-red-500'
   };
 
+  // Utility functions
+  const showError = (message) => {
+    setError(message);
+    setTimeout(() => setError(''), 5000);
+  };
+
+  const showSuccess = (message) => {
+    setSuccess(message);
+    setTimeout(() => setSuccess(''), 5000);
+  };
+
   // Fetch data functions
   const fetchNotifications = async () => {
     try {
       setLoading(true);
+      setError('');
+      
       const params = new URLSearchParams({
-        page: filters.page,
-        limit: pagination.limit,
-        ...(filters.type !== 'all' && { type: filters.type })
+        page: filters.page.toString(),
+        limit: pagination.limit.toString(),
       });
       
+      if (filters.type !== 'all') {
+        params.append('type', filters.type);
+      }
+      
+      if (filters.status !== 'all') {
+        params.append('status', filters.status);
+      }
+      
+      if (filters.search.trim()) {
+        params.append('search', filters.search.trim());
+      }
+      
       const response = await api.get(`/notifications/admin/all?${params}`);
-      setNotifications(response.data.notifications);
-      setPagination(response.data.pagination);
+      
+      if (response.data) {
+        setNotifications(response.data.notifications || []);
+        setPagination(response.data.pagination || { current: 1, pages: 1, total: 0, limit: 10 });
+      }
     } catch (error) {
       console.error('Error fetching notifications:', error);
+      showError('Failed to fetch notifications');
+      setNotifications([]);
     } finally {
       setLoading(false);
     }
@@ -93,72 +129,102 @@ const NotificationTab = () => {
   const fetchUsers = async () => {
     try {
       const response = await api.get('/notifications/users');
-      setUsers(response.data);
+      // Handle the actual API response structure
+      const users = response.data?.data || response.data?.users || [];
+      setUsers(users);
     } catch (error) {
       console.error('Error fetching users:', error);
+      showError('Failed to fetch users');
+      setUsers([]);
     }
   };
 
   const fetchStats = async () => {
     try {
-      const response = await api.get('/notifications/stats');
-      setStats(response.data);
+      const response = await api.get('/notifications/admin/stats');
+      setStats(response.data || { total: 0, read: 0, unread: 0 });
     } catch (error) {
       console.error('Error fetching stats:', error);
+      setStats({ total: 0, read: 0, unread: 0 });
     }
   };
 
+  // Effects
   useEffect(() => {
     fetchNotifications();
+  }, [filters.page, filters.type, filters.status]);
+
+  useEffect(() => {
     fetchUsers();
     fetchStats();
-  }, [filters]);
+  }, []);
 
-  // Send notification functions
+  // Debounced search
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (filters.search !== '' || filters.page !== 1) {
+        setFilters(prev => ({ ...prev, page: 1 }));
+        fetchNotifications();
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [filters.search]);
+
+  // Send notification function
   const sendNotification = async () => {
+    if (!sendForm.message.trim()) {
+      showError("Message is required");
+      return;
+    }
+
+    if (sendForm.type === 'specific' && sendForm.receivers.length === 0) {
+      showError("Please select at least one user");
+      return;
+    }
+
     try {
       setLoading(true);
-      let endpoint = '/notifications/send';
+      setError('');
+
       let payload = {
-        message: sendForm.message,
+        message: sendForm.message.trim(),
         type: sendForm.notificationType,
         priority: sendForm.priority,
-        ...(sendForm.expiresAt && { expiresAt: sendForm.expiresAt })
       };
 
-      switch (sendForm.type) {
-        case 'specific':
-          payload.receivers = sendForm.receivers;
-          break;
-        case 'employees':
-          endpoint = '/notifications/send-to-employees';
-          break;
-        case 'teamleads':
-          endpoint = '/notifications/send-to-teamleads';
-          break;
-        case 'all':
-          endpoint = '/notifications/send-to-all';
-          break;
+      // Add expiry date if provided
+      if (sendForm.expiresAt) {
+        payload.expiresAt = sendForm.expiresAt;
       }
 
-      await api.post(endpoint, payload);
-      
-      // Reset form and refresh data
-      setSendForm({
-        type: 'specific',
-        receivers: [],
-        message: '',
-        notificationType: 'info',
-        priority: 'normal',
-        expiresAt: ''
-      });
-      
-      fetchNotifications();
-      fetchStats();
-      setActiveTab('view');
-      
+      // Add receivers for specific users
+      if (sendForm.type === "specific") {
+        payload.receivers = sendForm.receivers;
+      } else {
+        payload.sendToAll = sendForm.type;
+      }
+
+      const response = await api.post("/notifications/send", payload);
+
+      if (response.data?.success) {
+        showSuccess("Notification sent successfully!");
+        setSendForm({
+          type: "all",
+          receivers: [],
+          message: "",
+          notificationType: "info",
+          priority: "normal",
+          expiresAt: "",
+        });
+        fetchNotifications();
+        fetchStats();
+      } else {
+        showError(response.data?.message || "Failed to send notification");
+      }
     } catch (error) {
-      console.error('Error sending notification:', error);
+      console.error("Error sending notification:", error);
+      showError(error.response?.data?.message || "Failed to send notification");
     } finally {
       setLoading(false);
     }
@@ -166,26 +232,101 @@ const NotificationTab = () => {
 
   const updateNotification = async (id, updates) => {
     try {
-      await api.put(`/notifications/${id}`, updates);
-      fetchNotifications();
-      setEditingNotification(null);
+      setLoading(true);
+      setError('');
+
+      const response = await api.put(`/notifications/${id}`, updates);
+      
+      if (response.data?.success) {
+        showSuccess("Notification updated successfully!");
+        fetchNotifications();
+        setEditingNotification(null);
+      } else {
+        showError("Failed to update notification");
+      }
     } catch (error) {
       console.error('Error updating notification:', error);
+      showError(error.response?.data?.message || "Failed to update notification");
+    } finally {
+      setLoading(false);
     }
   };
 
   const deleteNotification = async (id) => {
-    if (!confirm('Are you sure you want to delete this notification?')) return;
+    if (!window.confirm('Are you sure you want to delete this notification?')) return;
     
     try {
-      await api.delete(`/notifications/${id}`);
-      fetchNotifications();
+      setLoading(true);
+      setError('');
+
+      const response = await api.delete(`/notifications/${id}`);
+      
+      if (response.data?.success) {
+        showSuccess("Notification deleted successfully!");
+        fetchNotifications();
+        fetchStats();
+      } else {
+        showError("Failed to delete notification");
+      }
     } catch (error) {
       console.error('Error deleting notification:', error);
+      showError(error.response?.data?.message || "Failed to delete notification");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Admin read/unread functionality
+  const toggleReadStatus = async (notificationId, currentStatus) => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const endpoint = currentStatus === 'read' ? 'unread' : 'read';
+      const response = await api.put(`/notifications/admin/${notificationId}/${endpoint}`);
+      
+      if (response.data?.success) {
+        showSuccess(`Notification marked as ${endpoint} successfully!`);
+        fetchNotifications();
+        fetchStats();
+      } else {
+        showError(`Failed to mark notification as ${endpoint}`);
+      }
+    } catch (error) {
+      console.error(`Error marking notification as ${endpoint}:`, error);
+      showError(error.response?.data?.message || `Failed to mark notification as ${endpoint}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Bulk operations
+  const bulkMarkAsRead = async () => {
+    if (!window.confirm('Mark all notifications as read?')) return;
+    
+    try {
+      setLoading(true);
+      setError('');
+
+      const response = await api.put('/notifications/admin/bulk/mark-read');
+      
+      if (response.data?.success) {
+        showSuccess("All notifications marked as read!");
+        fetchNotifications();
+        fetchStats();
+      } else {
+        showError("Failed to mark notifications as read");
+      }
+    } catch (error) {
+      console.error('Error marking notifications as read:', error);
+      showError(error.response?.data?.message || "Failed to mark notifications as read");
+    } finally {
+      setLoading(false);
     }
   };
 
   const formatDate = (date) => {
+    if (!date) return 'N/A';
     return new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -193,6 +334,14 @@ const NotificationTab = () => {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value, page: 1 }));
+  };
+
+  const handlePageChange = (newPage) => {
+    setFilters(prev => ({ ...prev, page: newPage }));
   };
 
   return (
@@ -206,6 +355,19 @@ const NotificationTab = () => {
           </h1>
           <p className="mt-2 text-gray-600">Manage and send notifications to users</p>
         </div>
+
+        {/* Success/Error Messages */}
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            {error}
+          </div>
+        )}
+        
+        {success && (
+          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+            {success}
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -276,32 +438,51 @@ const NotificationTab = () => {
           {/* View Notifications Tab */}
           {activeTab === 'view' && (
             <div className="p-6">
-              {/* Filters */}
-              <div className="flex flex-col md:flex-row gap-4 mb-6">
-                <div className="flex-1">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                    <input
-                      type="text"
-                      placeholder="Search notifications..."
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      value={filters.search}
-                      onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                    />
+              {/* Filters and Bulk Actions */}
+              <div className="flex flex-col lg:flex-row gap-4 mb-6">
+                <div className="flex flex-col md:flex-row gap-4 flex-1">
+                  <div className="flex-1">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <input
+                        type="text"
+                        placeholder="Search notifications..."
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={filters.search}
+                        onChange={(e) => handleFilterChange('search', e.target.value)}
+                      />
+                    </div>
                   </div>
+                  <select
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    value={filters.type}
+                    onChange={(e) => handleFilterChange('type', e.target.value)}
+                  >
+                    <option value="all">All Types</option>
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                    <option value="alert">Alert</option>
+                    <option value="task">Task</option>
+                    <option value="report">Report</option>
+                  </select>
+                  <select
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    value={filters.status}
+                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                  >
+                    <option value="all">All Status</option>
+                    <option value="read">Read</option>
+                    <option value="unread">Unread</option>
+                  </select>
                 </div>
-                <select
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  value={filters.type}
-                  onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value, page: 1 }))}
+                <button
+                  onClick={bulkMarkAsRead}
+                  disabled={loading}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
                 >
-                  <option value="all">All Types</option>
-                  <option value="info">Info</option>
-                  <option value="warning">Warning</option>
-                  <option value="alert">Alert</option>
-                  <option value="task">Task</option>
-                  <option value="report">Report</option>
-                </select>
+                  <CheckCircle className="w-4 h-4" />
+                  Mark All Read
+                </button>
               </div>
 
               {/* Notifications List */}
@@ -319,10 +500,14 @@ const NotificationTab = () => {
                 ) : (
                   notifications.map((notification) => {
                     const TypeIcon = notificationTypes[notification.type]?.icon || Info;
+                    const isRead = notification.readBy && notification.readBy.length > 0;
+                    
                     return (
                       <div
                         key={notification._id}
-                        className={`bg-white border-l-4 ${priorityColors[notification.priority]} rounded-lg shadow-sm p-4 hover:shadow-md transition-shadow`}
+                        className={`bg-white border-l-4 ${priorityColors[notification.priority]} rounded-lg shadow-sm p-4 hover:shadow-md transition-shadow ${
+                          !isRead ? 'bg-blue-50' : ''
+                        }`}
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex items-start space-x-3 flex-1">
@@ -332,7 +517,7 @@ const NotificationTab = () => {
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
                                 <span className="text-sm font-medium text-gray-900">
-                                  From: {notification.sender?.name || 'Unknown'}
+                                  From: {notification.sender?.name || 'System'}
                                 </span>
                                 <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded-full">
                                   {notification.type}
@@ -345,12 +530,21 @@ const NotificationTab = () => {
                                 }`}>
                                   {notification.priority}
                                 </span>
+                                <span className={`text-xs px-2 py-1 rounded-full ${
+                                  isRead ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                                }`}>
+                                  {isRead ? 'Read' : 'Unread'}
+                                </span>
                               </div>
                               <p className="text-gray-800 mb-2">{notification.message}</p>
                               <div className="flex items-center gap-4 text-sm text-gray-500">
                                 <div className="flex items-center gap-1">
                                   <Users className="w-4 h-4" />
                                   {notification.receivers?.length || 0} recipients
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <UserCheck className="w-4 h-4" />
+                                  {notification.readBy?.length || 0} read
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <Clock className="w-4 h-4" />
@@ -367,14 +561,28 @@ const NotificationTab = () => {
                           </div>
                           <div className="flex items-center space-x-2">
                             <button
+                              onClick={() => toggleReadStatus(notification._id, isRead ? 'read' : 'unread')}
+                              disabled={loading}
+                              className={`p-2 transition-colors disabled:opacity-50 ${
+                                isRead 
+                                  ? 'text-gray-400 hover:text-orange-600' 
+                                  : 'text-gray-400 hover:text-green-600'
+                              }`}
+                              title={isRead ? 'Mark as Unread' : 'Mark as Read'}
+                            >
+                              {isRead ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                            <button
                               onClick={() => setEditingNotification(notification)}
-                              className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                              disabled={loading}
+                              className="p-2 text-gray-400 hover:text-blue-600 transition-colors disabled:opacity-50"
                             >
                               <Edit className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => deleteNotification(notification._id)}
-                              className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                              disabled={loading}
+                              className="p-2 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -390,8 +598,8 @@ const NotificationTab = () => {
               {pagination.pages > 1 && (
                 <div className="flex justify-center items-center space-x-2 mt-6">
                   <button
-                    onClick={() => setFilters(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
-                    disabled={pagination.current <= 1}
+                    onClick={() => handlePageChange(Math.max(1, pagination.current - 1))}
+                    disabled={pagination.current <= 1 || loading}
                     className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Previous
@@ -400,8 +608,8 @@ const NotificationTab = () => {
                     Page {pagination.current} of {pagination.pages}
                   </span>
                   <button
-                    onClick={() => setFilters(prev => ({ ...prev, page: Math.min(pagination.pages, prev.page + 1) }))}
-                    disabled={pagination.current >= pagination.pages}
+                    onClick={() => handlePageChange(Math.min(pagination.pages, pagination.current + 1))}
+                    disabled={pagination.current >= pagination.pages || loading}
                     className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next
@@ -428,7 +636,8 @@ const NotificationTab = () => {
                       <button
                         key={value}
                         onClick={() => setSendForm(prev => ({ ...prev, type: value, receivers: [] }))}
-                        className={`p-3 border rounded-lg text-center transition-colors ${
+                        disabled={loading}
+                        className={`p-3 border rounded-lg text-center transition-colors disabled:opacity-50 ${
                           sendForm.type === value
                             ? 'border-blue-500 bg-blue-50 text-blue-700'
                             : 'border-gray-300 hover:border-gray-400'
@@ -444,38 +653,51 @@ const NotificationTab = () => {
                 {/* Specific Users Selection */}
                 {sendForm.type === 'specific' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Select Users</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Select Users ({sendForm.receivers.length} selected)
+                    </label>
                     <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg">
-                      {users.map(user => (
-                        <label key={user._id} className="flex items-center p-3 hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={sendForm.receivers.includes(user._id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSendForm(prev => ({ ...prev, receivers: [...prev.receivers, user._id] }));
-                              } else {
-                                setSendForm(prev => ({ 
-                                  ...prev, 
-                                  receivers: prev.receivers.filter(id => id !== user._id) 
-                                }));
-                              }
-                            }}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <div className="ml-3">
-                            <div className="text-sm font-medium text-gray-900">{user.name}</div>
-                            <div className="text-sm text-gray-500">{user.role} • {user.email}</div>
-                          </div>
-                        </label>
-                      ))}
+                      {users.length === 0 ? (
+                        <div className="p-4 text-center text-gray-500">
+                          No users available
+                        </div>
+                      ) : (
+                        users.map(user => (
+                          <label key={user._id} className="flex items-center p-3 hover:bg-gray-50 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={sendForm.receivers.includes(user._id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSendForm(prev => ({ 
+                                    ...prev, 
+                                    receivers: [...prev.receivers, user._id] 
+                                  }));
+                                } else {
+                                  setSendForm(prev => ({ 
+                                    ...prev, 
+                                    receivers: prev.receivers.filter(id => id !== user._id) 
+                                  }));
+                                }
+                              }}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <div className="ml-3">
+                              <div className="text-sm font-medium text-gray-900">{user.name}</div>
+                              <div className="text-sm text-gray-500">{user.role} • {user.email}</div>
+                            </div>
+                          </label>
+                        ))
+                      )}
                     </div>
                   </div>
                 )}
 
                 {/* Message */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Message</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Message <span className="text-red-500">*</span>
+                  </label>
                   <textarea
                     rows={4}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -526,13 +748,18 @@ const NotificationTab = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     value={sendForm.expiresAt}
                     onChange={(e) => setSendForm(prev => ({ ...prev, expiresAt: e.target.value }))}
+                    min={new Date().toISOString().slice(0, 16)}
                   />
                 </div>
 
                 {/* Send Button */}
                 <button
                   onClick={sendNotification}
-                  disabled={loading || !sendForm.message || (sendForm.type === 'specific' && sendForm.receivers.length === 0)}
+                  disabled={
+                    loading || 
+                    !sendForm.message.trim() || 
+                    (sendForm.type === 'specific' && sendForm.receivers.length === 0)
+                  }
                   className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
                 >
                   {loading ? (
@@ -596,13 +823,15 @@ const NotificationTab = () => {
                       type: editingNotification.type,
                       priority: editingNotification.priority
                     })}
-                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
-                    Save Changes
+                    {loading ? 'Saving...' : 'Save Changes'}
                   </button>
                   <button
                     onClick={() => setEditingNotification(null)}
-                    className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
+                    disabled={loading}
+                    className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors disabled:opacity-50"
                   >
                     Cancel
                   </button>

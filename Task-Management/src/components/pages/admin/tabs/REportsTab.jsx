@@ -51,16 +51,28 @@ const ReportsTab = () => {
 
   const fetchUsers = async () => {
     try {
-      const response = await api.get("/reports/users");
-      setUsers(response.data.users || []);
+      // Try multiple endpoints for fetching users
+      let response;
+      try {
+        response = await api.get("/admin/users");
+      } catch (err) {
+        console.log('Admin users endpoint failed, trying reports/users:', err);
+        response = await api.get("/reports/users");
+      }
+      
+      const userData = response.data.users || response.data.data || response.data || [];
+      setUsers(Array.isArray(userData) ? userData : []);
+      console.log('Users fetched:', userData.length);
     } catch (err) {
       console.error("Failed to fetch users:", err);
+      setError("Failed to fetch users");
     }
   };
 
   const fetchReports = async () => {
     try {
       setLoading(true);
+      setError("");
       
       // Build query string for filters
       const queryParams = new URLSearchParams();
@@ -68,9 +80,37 @@ const ReportsTab = () => {
         if (value) queryParams.append(key, value);
       });
 
-      const response = await api.get(`/reports/admin?${queryParams.toString()}`);
-      setReports(response.data.reports || []);
+      // Try multiple endpoints for fetching reports
+      let response;
+      const queryString = queryParams.toString();
+      
+      try {
+        response = await api.get(`/admin/reports${queryString ? '?' + queryString : ''}`);
+      } catch (err) {
+        console.log('Admin reports endpoint failed, trying reports/admin:', err);
+        response = await api.get(`/reports/admin${queryString ? '?' + queryString : ''}`);
+      }
+
+      const reportsData = response.data.reports || response.data.data || response.data || [];
+      
+      // Ensure each report has proper structure and handle missing nested properties
+      const processedReports = Array.isArray(reportsData) ? reportsData.map(report => ({
+        ...report,
+        createdBy: report.createdBy || { name: 'Unknown', role: 'unknown' },
+        forUser: report.forUser || null,
+        projectStats: report.projectStats || { done: 0, inProgress: 0, selected: 0 },
+        feedbacks: Array.isArray(report.feedbacks) ? report.feedbacks : [],
+        tasksCompleted: report.tasksCompleted || 0,
+        tasksPending: report.tasksPending || 0,
+        status: report.status || 'submitted',
+        completionStatus: report.completionStatus || 'pending'
+      })) : [];
+
+      setReports(processedReports);
+      console.log('Reports processed:', processedReports.length);
+      
     } catch (err) {
+      console.error('Error fetching reports:', err);
       setError(err.response?.data?.message || "Failed to fetch reports");
     } finally {
       setLoading(false);
@@ -79,10 +119,24 @@ const ReportsTab = () => {
 
   const fetchUserReports = async (userId) => {
     try {
+      setLoading(true);
       const response = await api.get(`/reports/user/${userId}`);
-      setReports(response.data.reports || []);
+      const reportsData = response.data.reports || response.data.data || [];
+      
+      // Process user reports with same safety checks
+      const processedReports = Array.isArray(reportsData) ? reportsData.map(report => ({
+        ...report,
+        createdBy: report.createdBy || { name: 'Unknown', role: 'unknown' },
+        forUser: report.forUser || null,
+        projectStats: report.projectStats || { done: 0, inProgress: 0, selected: 0 },
+        feedbacks: Array.isArray(report.feedbacks) ? report.feedbacks : []
+      })) : [];
+
+      setReports(processedReports);
     } catch (err) {
       setError(err.response?.data?.message || "Failed to fetch user reports");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -112,6 +166,7 @@ const ReportsTab = () => {
       });
       
       fetchReports();
+      alert('Report created successfully!');
     } catch (err) {
       alert(err.response?.data?.message || "Failed to create report");
     }
@@ -123,6 +178,7 @@ const ReportsTab = () => {
       setEditingReport(null);
       setEditForm({});
       fetchReports();
+      alert('Report updated successfully!');
     } catch (err) {
       alert(err.response?.data?.message || "Failed to update report");
     }
@@ -134,6 +190,7 @@ const ReportsTab = () => {
     try {
       await api.delete(`/reports/${reportId}`);
       fetchReports();
+      alert('Report deleted successfully!');
     } catch (err) {
       alert(err.response?.data?.message || "Failed to delete report");
     }
@@ -145,6 +202,7 @@ const ReportsTab = () => {
       setFeedbackForm({ comment: "", rating: 5 });
       setSelectedReport(null);
       fetchReports();
+      alert('Feedback added successfully!');
     } catch (err) {
       alert(err.response?.data?.message || "Failed to add feedback");
     }
@@ -154,6 +212,7 @@ const ReportsTab = () => {
     try {
       await api.patch(`/reports/${reportId}/completion`, { completionStatus });
       fetchReports();
+      alert(`Report marked as ${completionStatus}!`);
     } catch (err) {
       alert(err.response?.data?.message || "Failed to update completion status");
     }
@@ -162,11 +221,15 @@ const ReportsTab = () => {
   const startEditing = (report) => {
     setEditingReport(report._id);
     setEditForm({
-      type: report.type,
-      content: report.content,
-      tasksCompleted: report.tasksCompleted,
-      tasksPending: report.tasksPending,
-      projectStats: { ...report.projectStats }
+      type: report.type || 'daily',
+      content: report.content || '',
+      tasksCompleted: report.tasksCompleted || 0,
+      tasksPending: report.tasksPending || 0,
+      projectStats: { 
+        done: report.projectStats?.done || 0,
+        inProgress: report.projectStats?.inProgress || 0,
+        selected: report.projectStats?.selected || 0
+      }
     });
   };
 
@@ -177,11 +240,29 @@ const ReportsTab = () => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold mb-4">📊 Reports Management</h2>
+      <h2 className="text-2xl font-bold mb-4">Reports Management</h2>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="text-red-800">
+            <p className="font-medium">Error</p>
+            <p className="text-sm">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Debug Info */}
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm">
+        <p><strong>Debug Info:</strong></p>
+        <p>Reports loaded: {reports.length}</p>
+        <p>Users loaded: {users.length}</p>
+        <p>Loading: {loading ? 'Yes' : 'No'}</p>
+      </div>
 
       {/* Filters Section */}
       <div className="bg-white p-4 rounded-lg shadow border">
-        <h3 className="text-lg font-semibold mb-3">🔍 Filters</h3>
+        <h3 className="text-lg font-semibold mb-3">Filters</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <select
             value={filters.type}
@@ -253,7 +334,7 @@ const ReportsTab = () => {
 
       {/* User Reports Section */}
       <div className="bg-white p-4 rounded-lg shadow border">
-        <h3 className="text-lg font-semibold mb-3">👥 View User Reports</h3>
+        <h3 className="text-lg font-semibold mb-3">View User Reports</h3>
         <div className="flex gap-2">
           <select
             onChange={(e) => e.target.value && fetchUserReports(e.target.value)}
@@ -261,8 +342,8 @@ const ReportsTab = () => {
           >
             <option value="">Select a user to view their reports</option>
             {users.map(user => (
-              <option key={user._id} value={user._id}>
-                {user.name} ({user.role})
+              <option key={user._id || user.id} value={user._id || user.id}>
+                {user.name || 'Unknown'} ({user.role || 'unknown'})
               </option>
             ))}
           </select>
@@ -277,7 +358,7 @@ const ReportsTab = () => {
 
       {/* Create Report Form */}
       <div className="bg-white p-4 rounded-lg shadow border">
-        <h3 className="text-lg font-semibold mb-3">➕ Create New Report</h3>
+        <h3 className="text-lg font-semibold mb-3">Create New Report</h3>
         <form onSubmit={handleCreateReport} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <select
@@ -296,8 +377,8 @@ const ReportsTab = () => {
             >
               <option value="">Select User (Optional)</option>
               {users.map(user => (
-                <option key={user._id} value={user._id}>
-                  {user.name} ({user.role})
+                <option key={user._id || user.id} value={user._id || user.id}>
+                  {user.name || 'Unknown'} ({user.role || 'unknown'})
                 </option>
               ))}
             </select>
@@ -377,10 +458,9 @@ const ReportsTab = () => {
 
       {/* Reports List */}
       <div className="bg-white p-4 rounded-lg shadow border">
-        <h3 className="text-lg font-semibold mb-3">📋 All Reports ({reports.length})</h3>
+        <h3 className="text-lg font-semibold mb-3">All Reports ({reports.length})</h3>
         
         {loading && <p className="text-center py-4">Loading reports...</p>}
-        {error && <p className="text-red-500 text-center py-4">{error}</p>}
 
         {!loading && reports.length === 0 && (
           <p className="text-gray-500 text-center py-4">No reports found.</p>
@@ -388,23 +468,23 @@ const ReportsTab = () => {
 
         <div className="space-y-4">
           {reports.map((report) => (
-            <div key={report._id} className="border rounded-lg p-4 bg-gray-50">
+            <div key={report._id || report.id} className="border rounded-lg p-4 bg-gray-50">
               {/* Report Header */}
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <h4 className="font-semibold text-lg">
-                    {report.type.toUpperCase()} Report
+                    {(report.type || 'unknown').toUpperCase()} Report
                     {report.forUser && (
                       <span className="text-sm font-normal text-gray-600 ml-2">
-                        for {report.forUser.name}
+                        for {report.forUser.name || 'Unknown User'}
                       </span>
                     )}
                   </h4>
                   <p className="text-sm text-gray-600">
-                    Created by: {report.createdBy.name} ({report.createdBy.role})
+                    Created by: {report.createdBy?.name || 'Unknown'} ({report.createdBy?.role || 'unknown'})
                   </p>
                   <p className="text-xs text-gray-500">
-                    {new Date(report.createdAt).toLocaleString()}
+                    {report.createdAt ? new Date(report.createdAt).toLocaleString() : 'Date unknown'}
                   </p>
                 </div>
                 
@@ -416,14 +496,14 @@ const ReportsTab = () => {
                       report.status === "reviewed" ? "bg-yellow-100 text-yellow-600" :
                       "bg-blue-100 text-blue-600"
                     }`}>
-                      {report.status}
+                      {report.status || 'submitted'}
                     </span>
                     <span className={`px-2 py-1 text-xs rounded ${
                       report.completionStatus === "complete" ? "bg-green-100 text-green-600" :
                       report.completionStatus === "incomplete" ? "bg-red-100 text-red-600" :
                       "bg-gray-100 text-gray-600"
                     }`}>
-                      {report.completionStatus}
+                      {report.completionStatus || 'pending'}
                     </span>
                   </div>
                   
@@ -436,7 +516,7 @@ const ReportsTab = () => {
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDeleteReport(report._id)}
+                      onClick={() => handleDeleteReport(report._id || report.id)}
                       className="bg-red-500 text-white px-2 py-1 text-xs rounded hover:bg-red-600"
                     >
                       Delete
@@ -452,24 +532,24 @@ const ReportsTab = () => {
               </div>
 
               {/* Report Content */}
-              {editingReport === report._id ? (
+              {editingReport === (report._id || report.id) ? (
                 <div className="space-y-3">
                   <textarea
-                    value={editForm.content}
+                    value={editForm.content || ''}
                     onChange={(e) => setEditForm({ ...editForm, content: e.target.value })}
                     className="border p-2 rounded w-full h-24"
                   />
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                     <input
                       type="number"
-                      value={editForm.tasksCompleted}
+                      value={editForm.tasksCompleted || 0}
                       onChange={(e) => setEditForm({ ...editForm, tasksCompleted: e.target.value })}
                       className="border p-2 rounded text-sm"
                       placeholder="Tasks Completed"
                     />
                     <input
                       type="number"
-                      value={editForm.tasksPending}
+                      value={editForm.tasksPending || 0}
                       onChange={(e) => setEditForm({ ...editForm, tasksPending: e.target.value })}
                       className="border p-2 rounded text-sm"
                       placeholder="Tasks Pending"
@@ -507,7 +587,7 @@ const ReportsTab = () => {
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handleUpdateReport(report._id, editForm)}
+                      onClick={() => handleUpdateReport(report._id || report.id, editForm)}
                       className="bg-green-500 text-white px-3 py-1 text-sm rounded hover:bg-green-600"
                     >
                       Save
@@ -522,15 +602,15 @@ const ReportsTab = () => {
                 </div>
               ) : (
                 <>
-                  <p className="mb-3">{report.content}</p>
+                  <p className="mb-3">{report.content || 'No content'}</p>
                   
                   {/* Stats */}
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm text-gray-600 mb-3">
-                    <div>✅ Completed: {report.tasksCompleted}</div>
-                    <div>📌 Pending: {report.tasksPending}</div>
-                    <div>🟢 Done: {report.projectStats?.done || 0}</div>
-                    <div>🟡 In Progress: {report.projectStats?.inProgress || 0}</div>
-                    <div>🔵 Selected: {report.projectStats?.selected || 0}</div>
+                    <div>Completed: {report.tasksCompleted || 0}</div>
+                    <div>Pending: {report.tasksPending || 0}</div>
+                    <div>Done: {report.projectStats?.done || 0}</div>
+                    <div>In Progress: {report.projectStats?.inProgress || 0}</div>
+                    <div>Selected: {report.projectStats?.selected || 0}</div>
                   </div>
                 </>
               )}
@@ -538,14 +618,14 @@ const ReportsTab = () => {
               {/* Completion Status Controls */}
               <div className="flex gap-2 mt-3">
                 <button
-                  onClick={() => handleUpdateCompletionStatus(report._id, "complete")}
+                  onClick={() => handleUpdateCompletionStatus(report._id || report.id, "complete")}
                   className="bg-green-500 text-white px-3 py-1 text-sm rounded hover:bg-green-600"
                   disabled={report.completionStatus === "complete"}
                 >
                   Mark Complete
                 </button>
                 <button
-                  onClick={() => handleUpdateCompletionStatus(report._id, "incomplete")}
+                  onClick={() => handleUpdateCompletionStatus(report._id || report.id, "incomplete")}
                   className="bg-red-500 text-white px-3 py-1 text-sm rounded hover:bg-red-600"
                   disabled={report.completionStatus === "incomplete"}
                 >
@@ -556,20 +636,20 @@ const ReportsTab = () => {
               {/* Existing Feedbacks */}
               {report.feedbacks && report.feedbacks.length > 0 && (
                 <div className="mt-4 p-3 bg-white rounded border">
-                  <h5 className="font-semibold mb-2">💬 Feedbacks:</h5>
+                  <h5 className="font-semibold mb-2">Feedbacks:</h5>
                   {report.feedbacks.map((feedback, index) => (
                     <div key={index} className="mb-2 p-2 bg-gray-50 rounded text-sm">
                       <div className="flex justify-between">
-                        <span className="font-medium">{feedback.role.toUpperCase()}</span>
+                        <span className="font-medium">{(feedback.role || 'unknown').toUpperCase()}</span>
                         {feedback.rating && (
                           <span className="text-yellow-500">
                             {"★".repeat(feedback.rating)}{"☆".repeat(5-feedback.rating)}
                           </span>
                         )}
                       </div>
-                      <p className="mt-1">{feedback.comment}</p>
+                      <p className="mt-1">{feedback.comment || 'No comment'}</p>
                       <p className="text-xs text-gray-500 mt-1">
-                        {new Date(feedback.createdAt).toLocaleString()}
+                        {feedback.createdAt ? new Date(feedback.createdAt).toLocaleString() : 'Date unknown'}
                       </p>
                     </div>
                   ))}
@@ -585,7 +665,7 @@ const ReportsTab = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold mb-4">
-              💬 Add Feedback to {selectedReport.type} Report
+              Add Feedback to {(selectedReport.type || 'unknown')} Report
             </h3>
             
             <textarea
@@ -619,7 +699,7 @@ const ReportsTab = () => {
                 Cancel
               </button>
               <button
-                onClick={() => handleAddFeedback(selectedReport._id)}
+                onClick={() => handleAddFeedback(selectedReport._id || selectedReport.id)}
                 className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
                 disabled={!feedbackForm.comment.trim()}
               >
