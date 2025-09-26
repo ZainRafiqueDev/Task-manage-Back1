@@ -1,7 +1,9 @@
+// Login.jsx
 import { useState } from "react";
 import { Mail, Lock, LogIn } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import api from "../../services/api"; // ✅ use the axios instance
 
 const Login = () => {
   const [form, setForm] = useState({ email: "", password: "" });
@@ -17,17 +19,10 @@ const Login = () => {
     setError("");
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-        credentials: "include", // ✅ backend sets cookie
-      });
+      // ✅ Use api.js instead of fetch
+      const { data } = await api.post("/auth/login", form);
 
-      const data = await response.json();
       console.log("Login response:", data);
-
-      if (!response.ok) throw new Error(data.message || "Invalid email or password");
 
       // Flatten user object
       const userData = {
@@ -51,7 +46,7 @@ const Login = () => {
           navigate("/employee");
       }
     } catch (err) {
-      setError(err.message || "Login failed. Please try again.");
+      setError(err.response?.data?.message || "Login failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -76,6 +71,7 @@ const Login = () => {
               </div>
             )}
 
+            {/* Email */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address
@@ -97,6 +93,7 @@ const Login = () => {
               </div>
             </div>
 
+            {/* Password */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Password
@@ -118,6 +115,7 @@ const Login = () => {
               </div>
             </div>
 
+            {/* Submit button */}
             <button
               type="submit"
               disabled={loading}

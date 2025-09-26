@@ -254,10 +254,12 @@ const OverviewTab = () => {
 };
 
 // Enhanced Projects Tab Component
+// Debug Version - ProjectsTab Component
 const ProjectsTab = () => {
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [debugInfo, setDebugInfo] = useState(null);
   const [selectedProject, setSelectedProject] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -266,40 +268,62 @@ const ProjectsTab = () => {
     fetchData();
   }, []);
 
- const fetchData = async () => {
-  try {
-    setLoading(true);
-    const [projectsRes, tasksRes] = await Promise.all([
-      api.get('/projects/assigned'),
-      api.get('/projects/employee/tasks') // CHANGE: was '/employee/tasks'
-    ]);
-    setProjects(projectsRes.data.projects || []);
-    setTasks(tasksRes.data.tasks || []);
-  } catch (error) {
-    console.error('Error fetching data:', error);
-  } finally {
-    setLoading(false);
-  }
-};
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      
+      // Debug: Log what we're calling
+      console.log('Calling /projects/assigned...');
+      
+      const assignedProjectsRes = await api.get('/projects/assigned');
+      
+      // Debug: Log the full response
+      console.log('Full assigned projects response:', assignedProjectsRes.data);
+      
+      const projectsData = assignedProjectsRes.data.projects || [];
+      const tasksData = assignedProjectsRes.data.tasks || [];
+      
+      console.log('Projects found:', projectsData.length);
+      console.log('Tasks found:', tasksData.length);
+      console.log('Projects data:', projectsData);
+      console.log('Tasks data:', tasksData);
+      
+      setProjects(projectsData);
+      setTasks(tasksData);
+      
+      // Set debug info for display
+      setDebugInfo({
+        projectsCount: projectsData.length,
+        tasksCount: tasksData.length,
+        stats: assignedProjectsRes.data.stats,
+        rawResponse: assignedProjectsRes.data
+      });
+      
+    } catch (error) {
+      console.error('Error fetching assigned projects:', error);
+      console.log('Error details:', error.response?.data);
+      
+      setDebugInfo({
+        error: error.message,
+        errorDetails: error.response?.data
+      });
+      
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchProjectDetails = async (projectId) => {
-  try {
-    // Use the new employee-specific endpoint
-    const response = await api.get(`/projects/employee/project/${projectId}`);
-    setSelectedProject(response.data.data);
-  } catch (error) {
-    console.error('Error fetching project details:', error);
-    
-    // Fallback to regular project endpoint if needed
     try {
-      const fallbackResponse = await api.get(`/projects/${projectId}`);
-      setSelectedProject(fallbackResponse.data.project);
-    } catch (fallbackError) {
-      console.error('Fallback failed:', fallbackError);
-      alert('Unable to load project details. You may not have access to this project.');
+      console.log('Fetching project details for:', projectId);
+      const response = await api.get(`/projects/employee/project/${projectId}`);
+      console.log('Project details response:', response.data);
+      setSelectedProject(response.data.data);
+    } catch (error) {
+      console.error('Error fetching project details:', error);
+      alert('Unable to load project details: ' + error.message);
     }
-  }
-};
+  };
 
   const getProjectTasks = (projectId) => {
     return tasks.filter(task => task.project && task.project._id === projectId);
@@ -338,6 +362,29 @@ const ProjectsTab = () => {
         </div>
       </div>
 
+      {/* Debug Information Panel */}
+      {debugInfo && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h3 className="font-semibold text-blue-900 mb-2">Debug Information</h3>
+          <div className="text-sm text-blue-800 space-y-1">
+            <div>Projects Count: {debugInfo.projectsCount}</div>
+            <div>Tasks Count: {debugInfo.tasksCount}</div>
+            {debugInfo.stats && (
+              <div>Stats: {JSON.stringify(debugInfo.stats, null, 2)}</div>
+            )}
+            {debugInfo.error && (
+              <div className="text-red-600">Error: {debugInfo.error}</div>
+            )}
+          </div>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-blue-700">Show Raw Response</summary>
+            <pre className="mt-2 text-xs bg-white p-2 rounded border max-h-64 overflow-auto">
+              {JSON.stringify(debugInfo.rawResponse || debugInfo.errorDetails, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex space-x-4">
         <div className="relative flex-1">
@@ -364,24 +411,72 @@ const ProjectsTab = () => {
         </select>
       </div>
 
+      {/* Projects Display */}
       {filteredProjects.length === 0 ? (
         <div className="text-center py-12">
           <FolderOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No Projects Found</h3>
-          <p className="text-gray-600">You are not assigned to any projects matching your criteria.</p>
+          <p className="text-gray-600">
+            {projects.length === 0 
+              ? "You are not assigned to any projects yet." 
+              : "No projects match your search criteria."
+            }
+          </p>
+          {projects.length === 0 && debugInfo && (
+            <div className="mt-4 text-sm text-gray-500">
+              <p>Debug: Check the console for API response details.</p>
+              <p>Make sure you are logged in as an employee and assigned to projects.</p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
           {filteredProjects.map((project) => {
             const projectTasks = getProjectTasks(project._id);
+            console.log(`Project ${project.projectName} tasks:`, projectTasks);
+            
             return (
-              <ProjectCardWithTasks
-                key={project._id}
-                project={project}
-                tasks={projectTasks}
-                onViewDetails={fetchProjectDetails}
-                getStatusColor={getStatusColor}
-              />
+              <div key={project._id} className="bg-white rounded-lg shadow border p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">{project.projectName}</h3>
+                    <p className="text-sm text-gray-600">Client: {project.clientName}</p>
+                    <div className="flex items-center space-x-2 mt-1">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(project.status)}`}>
+                        {project.status}
+                      </span>
+                      <span className="text-sm text-gray-600">
+                        {projectTasks.length} tasks
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => fetchProjectDetails(project._id)}
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  >
+                    View Details
+                  </button>
+                </div>
+                
+                {/* Show task details for debugging */}
+                {projectTasks.length > 0 && (
+                  <div className="mt-3 pt-3 border-t">
+                    <p className="text-sm font-medium text-gray-700 mb-2">Tasks:</p>
+                    <div className="space-y-1">
+                      {projectTasks.slice(0, 3).map(task => (
+                        <div key={task._id} className="text-sm text-gray-600">
+                          • {task.title} ({task.status})
+                        </div>
+                      ))}
+                      {projectTasks.length > 3 && (
+                        <div className="text-sm text-gray-500">
+                          +{projectTasks.length - 3} more tasks
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -389,8 +484,8 @@ const ProjectsTab = () => {
 
       {selectedProject && (
         <ProjectDetailsModal
-          project={selectedProject}
-          tasks={getProjectTasks(selectedProject._id)}
+          project={selectedProject.project || selectedProject}
+          tasks={selectedProject.myTasks || getProjectTasks(selectedProject._id)}
           onClose={() => setSelectedProject(null)}
           getStatusColor={getStatusColor}
         />

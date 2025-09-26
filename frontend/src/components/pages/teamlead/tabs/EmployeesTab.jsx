@@ -6,34 +6,18 @@ import {
   UserPlus, 
   UserMinus, 
   CheckSquare, 
-  Clock, 
   AlertTriangle, 
   Search, 
   Filter, 
   Plus, 
-  Edit, 
-  Trash2, 
-  Eye, 
   Calendar, 
   User,
   FolderOpen,
-  Target,
   RefreshCw,
   ChevronDown,
   ChevronRight,
-  Activity,
-  Award,
-  Briefcase,
-  Settings,
   TrendingUp,
-  PieChart,
-  BarChart3,
-  Clock4,
-  Users2,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
-  Zap
+  Users2
 } from 'lucide-react';
 
 const TeamTaskManagementTab = () => {
@@ -42,14 +26,12 @@ const TeamTaskManagementTab = () => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   
-  // Enhanced data states using project APIs
+  // Data states
   const [employees, setEmployees] = useState([]);
   const [myTeam, setMyTeam] = useState([]);
   const [availableEmployees, setAvailableEmployees] = useState([]);
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
-  
-  // New states for project route data
   const [projectsWithTasks, setProjectsWithTasks] = useState([]);
   const [teamWithTasks, setTeamWithTasks] = useState([]);
   const [dashboardStats, setDashboardStats] = useState(null);
@@ -66,7 +48,7 @@ const TeamTaskManagementTab = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Task form states
+  // Task form state
   const [taskForm, setTaskForm] = useState({
     title: '',
     description: '',
@@ -78,7 +60,9 @@ const TeamTaskManagementTab = () => {
     projectLink: ''
   });
 
-  // Enhanced fetch functions using project APIs
+  // API CALLS
+  
+  // 1. GET /projects/teamlead/stats - Dashboard statistics
   const fetchDashboardStats = async () => {
     if (user.role === 'teamlead') {
       try {
@@ -90,6 +74,7 @@ const TeamTaskManagementTab = () => {
     }
   };
 
+  // 2. GET /projects/teamlead/overview - Projects with tasks
   const fetchProjectsWithTasks = async () => {
     if (user.role === 'teamlead') {
       try {
@@ -101,46 +86,7 @@ const TeamTaskManagementTab = () => {
     }
   };
 
-  const fetchTeamWithTasks = async () => {
-    if (user.role === 'teamlead') {
-      try {
-        const response = await api.get('/projects/teamlead/team');
-        setTeamWithTasks(response.data.teamMembers || []);
-        
-        // Also get task assignment overview to ensure we have all task data
-        const taskOverviewResponse = await api.get('/projects/teamlead/tasks');
-        setTaskAssignmentOverview(taskOverviewResponse.data);
-        
-        // Extract all tasks from the overview
-        const allTasks = [
-          ...(taskOverviewResponse.data.recentTasks || []),
-          ...(taskOverviewResponse.data.unassignedTasks || [])
-        ];
-        
-        // Add tasks from employee summaries
-        if (taskOverviewResponse.data.employeeTaskSummary) {
-          taskOverviewResponse.data.employeeTaskSummary.forEach(emp => {
-            if (emp.tasks) {
-              allTasks.push(...emp.tasks);
-            }
-          });
-        }
-        
-        setTasks(allTasks);
-        
-      } catch (error) {
-        console.error('Error fetching team with tasks:', error);
-        // Fallback to basic team data
-        try {
-          const teamResponse = await api.get('/users/team/my-team');
-          setTeamWithTasks(teamResponse.data.teamMembers || []);
-        } catch (fallbackError) {
-          console.error('Fallback team fetch failed:', fallbackError);
-        }
-      }
-    }
-  };
-
+  // 3. GET /projects/teamlead/employees - Employee task status
   const fetchEmployeeTaskStatus = async () => {
     if (user.role === 'teamlead') {
       try {
@@ -152,6 +98,7 @@ const TeamTaskManagementTab = () => {
     }
   };
 
+  // 4. GET /projects/teamlead/tasks - Task assignment overview
   const fetchTaskAssignmentOverview = async () => {
     if (user.role === 'teamlead') {
       try {
@@ -163,7 +110,9 @@ const TeamTaskManagementTab = () => {
     }
   };
 
-  // Keep existing fetch functions for backward compatibility
+  // 5. GET /users/team/my-team - Get team members
+  // 6. GET /users/employees/available - Get available employees
+  // 7. GET /users/employees - Get all employees
   const fetchEmployeesData = async () => {
     try {
       setError('');
@@ -172,30 +121,82 @@ const TeamTaskManagementTab = () => {
         const response = await api.get('/users/employees');
         setEmployees(response.data.employees || []);
       } else if (user.role === 'teamlead') {
-        try {
-          const teamResponse = await api.get('/users/team/my-team');
-          const myTeamData = teamResponse.data.teamMembers || [];
+        const [teamResponse, availableResponse, allEmployeesResponse] = await Promise.allSettled([
+          api.get('/users/team/my-team'),
+          api.get('/users/employees/available'),
+          api.get('/users/employees')
+        ]);
+        
+        if (teamResponse.status === 'fulfilled' && teamResponse.value.data.success) {
+          const myTeamData = teamResponse.value.data.teamMembers || [];
           setMyTeam(myTeamData);
-          
-          const availableResponse = await api.get('/users/employees/available');
-          const availableData = availableResponse.data.employees || [];
-          setAvailableEmployees(availableData);
-          
-          const allEmployeesResponse = await api.get('/users/employees');
-          setEmployees(allEmployeesResponse.data.employees || []);
-          
-        } catch (teamError) {
-          console.error('Error fetching team data:', teamError);
-          const response = await api.get('/users/employees');
-          setEmployees(response.data.employees || []);
+          setTeamWithTasks(myTeamData);
+        } else {
+          setMyTeam([]);
+          setTeamWithTasks([]);
+        }
+        
+        if (availableResponse.status === 'fulfilled' && availableResponse.value.data.success) {
+          setAvailableEmployees(availableResponse.value.data.employees || []);
+        } else {
+          setAvailableEmployees([]);
+        }
+        
+        if (allEmployeesResponse.status === 'fulfilled' && allEmployeesResponse.value.data.success) {
+          setEmployees(allEmployeesResponse.value.data.employees || []);
+        } else {
+          setEmployees([]);
         }
       }
     } catch (error) {
       console.error('Error fetching employees:', error);
-      setError('Failed to fetch employees data');
+      setError(`Failed to fetch employees: ${error.response?.data?.message || error.message}`);
     }
   };
 
+  // 8. Combined team and tasks fetch
+  const fetchTeamWithTasks = async () => {
+    if (user.role !== 'teamlead') return;
+    
+    try {
+      const teamResponse = await api.get('/users/team/my-team');
+      
+      if (teamResponse.data.success && teamResponse.data.teamMembers) {
+        const teamData = teamResponse.data.teamMembers;
+        setMyTeam(teamData);
+        setTeamWithTasks(teamData);
+        
+        try {
+          const taskResponse = await api.get('/projects/teamlead/tasks');
+          if (taskResponse.data.success) {
+            setTaskAssignmentOverview(taskResponse.data);
+            
+            const allTasks = [
+              ...(taskResponse.data.recentTasks || []),
+              ...(taskResponse.data.unassignedTasks || [])
+            ];
+            
+            if (taskResponse.data.employeeTaskSummary) {
+              taskResponse.data.employeeTaskSummary.forEach(emp => {
+                if (emp.tasks) allTasks.push(...emp.tasks);
+              });
+            }
+            
+            setTasks(allTasks);
+          }
+        } catch (taskError) {
+          console.error('Non-critical task fetch error:', taskError);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching team:', error);
+      setError(`Failed to fetch team: ${error.response?.data?.message || error.message}`);
+      setMyTeam([]);
+      setTeamWithTasks([]);
+    }
+  };
+
+  // 9. GET /projects/ or /projects/mine - Fetch projects
   const fetchProjects = async () => {
     try {
       let response;
@@ -216,6 +217,7 @@ const TeamTaskManagementTab = () => {
     }
   };
 
+  // 10. GET /tasks - Fetch all tasks
   const fetchTasks = async () => {
     try {
       const response = await api.get('/tasks');
@@ -225,15 +227,13 @@ const TeamTaskManagementTab = () => {
     }
   };
 
-  // Team management functions
+  // 11. POST /users/assign-team - Assign employees to team
   const assignToTeam = async (employeeIds) => {
     try {
       setActionLoading(true);
       setError('');
       
-      const response = await api.post('/users/assign-team', {
-        employeeIds: employeeIds
-      });
+      const response = await api.post('/users/assign-team', { employeeIds });
       
       if (response.data.success) {
         setSuccess(`Successfully assigned ${employeeIds.length} employee(s) to team`);
@@ -253,14 +253,13 @@ const TeamTaskManagementTab = () => {
     }
   };
 
+  // 12. POST /users/remove-team - Remove employees from team
   const removeFromTeam = async (employeeIds) => {
     try {
       setActionLoading(true);
       setError('');
       
-      const response = await api.post('/users/remove-team', {
-        employeeIds: employeeIds
-      });
+      const response = await api.post('/users/remove-team', { employeeIds });
       
       if (response.data.success) {
         setSuccess(`Successfully removed ${employeeIds.length} employee(s) from team`);
@@ -280,7 +279,7 @@ const TeamTaskManagementTab = () => {
     }
   };
 
-  // Task management functions
+  // 13. POST /tasks or /users/tasks/assign - Create task
   const createTask = async () => {
     try {
       setActionLoading(true);
@@ -315,7 +314,6 @@ const TeamTaskManagementTab = () => {
           projectLink: ''
         });
         
-        // Force refresh all data to ensure task counts update
         await Promise.all([
           fetchTasks(),
           fetchTeamWithTasks(),
@@ -333,6 +331,7 @@ const TeamTaskManagementTab = () => {
     }
   };
 
+  // 14. PATCH /users/tasks/:taskId/status - Update task status
   const updateTaskStatus = async (taskId, status) => {
     try {
       setActionLoading(true);
@@ -343,14 +342,12 @@ const TeamTaskManagementTab = () => {
       if (response.data.success) {
         setSuccess('Task status updated successfully');
         
-        // Update the local tasks array immediately for instant UI feedback
         setTasks(prevTasks => 
           prevTasks.map(task => 
             task._id === taskId ? { ...task, status } : task
           )
         );
         
-        // Then refresh all data to ensure consistency
         await Promise.all([
           fetchTasks(),
           fetchTeamWithTasks(),
@@ -367,7 +364,7 @@ const TeamTaskManagementTab = () => {
     }
   };
 
-  // Enhanced initial data fetch
+  // Initial data fetch
   useEffect(() => {
     if (user && (user.role === 'admin' || user.role === 'teamlead')) {
       setLoading(true);
@@ -377,7 +374,6 @@ const TeamTaskManagementTab = () => {
         fetchTasks()
       ];
 
-      // Add teamlead-specific fetches
       if (user.role === 'teamlead') {
         fetchPromises.push(
           fetchDashboardStats(),
@@ -392,7 +388,7 @@ const TeamTaskManagementTab = () => {
     }
   }, [user]);
 
-  // Clear messages after 5 seconds
+  // Clear messages
   useEffect(() => {
     if (error) {
       const timer = setTimeout(() => setError(''), 5000);
@@ -440,7 +436,17 @@ const TeamTaskManagementTab = () => {
     });
   };
 
-  // Enhanced Dashboard View using project API data
+  const getEmployeeTasks = (employeeId) => {
+    return tasks.filter(task => task.assignedTo?._id === employeeId);
+  };
+
+  const getTeamMemberTasks = () => {
+    return tasks.filter(task => 
+      myTeam.some(member => member._id === task.assignedTo?._id)
+    );
+  };
+
+  // Dashboard View
   const DashboardView = () => (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -450,10 +456,8 @@ const TeamTaskManagementTab = () => {
         </div>
       </div>
 
-      {/* Enhanced Stats Grid */}
       {dashboardStats && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Team Size */}
           <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
@@ -465,7 +469,6 @@ const TeamTaskManagementTab = () => {
             </div>
           </div>
 
-          {/* Projects */}
           <div className="bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
@@ -479,7 +482,6 @@ const TeamTaskManagementTab = () => {
             </div>
           </div>
 
-          {/* Tasks */}
           <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-xl p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
@@ -493,7 +495,6 @@ const TeamTaskManagementTab = () => {
             </div>
           </div>
 
-          {/* Available Employees */}
           <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
@@ -507,7 +508,6 @@ const TeamTaskManagementTab = () => {
         </div>
       )}
 
-      {/* Task Status Breakdown */}
       {taskAssignmentOverview && (
         <div className="bg-white rounded-xl shadow-sm border p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Task Overview</h3>
@@ -524,7 +524,6 @@ const TeamTaskManagementTab = () => {
         </div>
       )}
 
-      {/* Recent Projects with Tasks */}
       {projectsWithTasks.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -567,290 +566,297 @@ const TeamTaskManagementTab = () => {
       )}
     </div>
   );
-    const getEmployeeTasks = (employeeId) => {
-    return tasks.filter(task => task.assignedTo?._id === employeeId);
-  };
-   const getTeamMemberTasks = () => {
-    return tasks.filter(task => 
-      myTeam.some(member => member._id === task.assignedTo?._id)
-    );
-  };
 
+  // Team Management View - CORRECTED
+  const TeamManagementView = () => {
+    // Determine data source based on filter
+    const getDataSource = () => {
+      if (filterStatus === 'my-team') return myTeam;
+      if (filterStatus === 'available') return availableEmployees;
+      return employees;
+    };
 
+    const dataSource = getDataSource();
 
-  // Enhanced Team Management View with better data integration
-  // Enhanced Team Management View with improved UI matching the reference images
-  const filteredEmployees = employees.filter(employee => {
-    const matchesSearch = employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         employee.email.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    if (filterStatus === 'all') return matchesSearch;
-    if (filterStatus === 'my-team') return matchesSearch && myTeam.some(m => m._id === employee._id);
-    if (filterStatus === 'available') return matchesSearch && availableEmployees.some(m => m._id === employee._id);
-    
-    return matchesSearch;
-  });
+    // Apply search filter
+    const filteredEmployees = dataSource.filter(employee => {
+      const matchesSearch = (employee.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           (employee.email || '').toLowerCase().includes(searchTerm.toLowerCase());
+      return matchesSearch;
+    });
 
-  if (!user || !['admin', 'teamlead'].includes(user.role)) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <p className="text-gray-600">Access denied. Admin or Team Lead role required.</p>
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Team Management</h2>
+            <p className="text-gray-600">Manage team members and assignments</p>
+          </div>
+          
+          <div className="flex gap-2">
+            {selectedEmployees.length > 0 && user.role === 'teamlead' && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => assignToTeam(selectedEmployees)}
+                  disabled={actionLoading}
+                  className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-md flex items-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Assign to Team ({selectedEmployees.length})
+                </button>
+                <button
+                  onClick={() => removeFromTeam(selectedEmployees)}
+                  disabled={actionLoading}
+                  className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-md flex items-center gap-2"
+                >
+                  <UserMinus className="w-4 h-4" />
+                  Remove from Team ({selectedEmployees.length})
+                </button>
+              </div>
+            )}
+            
+            <button
+              onClick={() => setShowTaskModal(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Assign Task
+            </button>
+          </div>
         </div>
-      </div>
-    );
-  }
-const TeamManagementView = () => (
-    <div className="space-y-6">
-      {/* Team Management Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900">Team Management</h2>
-          <p className="text-gray-600">Manage team members and assignments</p>
-        </div>
-        
-        <div className="flex gap-2">
-          {selectedEmployees.length > 0 && (
-            <div className="flex gap-2">
+
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Search employees..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-4 py-2 border border-gray-300 rounded-md w-full focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="all">All Employees ({employees.length})</option>
               {user.role === 'teamlead' && (
                 <>
-                  <button
-                    onClick={() => assignToTeam(selectedEmployees)}
-                    disabled={actionLoading}
-                    className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-md flex items-center gap-2"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    Assign to Team ({selectedEmployees.length})
-                  </button>
-                  <button
-                    onClick={() => removeFromTeam(selectedEmployees)}
-                    disabled={actionLoading}
-                    className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-md flex items-center gap-2"
-                  >
-                    <UserMinus className="w-4 h-4" />
-                    Remove from Team ({selectedEmployees.length})
-                  </button>
+                  <option value="my-team">My Team ({myTeam.length})</option>
+                  <option value="available">Available ({availableEmployees.length})</option>
                 </>
               )}
-            </div>
-          )}
-          
-          <button
-            onClick={() => setShowTaskModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Assign Task
-          </button>
-        </div>
-      </div>
+            </select>
 
-      {/* Search and Filters */}
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search employees..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-md w-full focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Employees</option>
-            {user.role === 'teamlead' && (
-              <>
-                <option value="my-team">My Team</option>
-                <option value="available">Available</option>
-              </>
-            )}
-          </select>
-
-          <div className="flex items-center text-sm text-gray-600">
-            <Filter className="w-4 h-4 mr-1" />
-            {filteredEmployees.length} employees
-          </div>
-        </div>
-      </div>
-
-      {/* Team Stats */}
-      {user.role === 'teamlead' && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white p-4 rounded-lg border">
-            <div className="flex items-center">
-              <Users className="w-8 h-8 text-blue-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Team Size</p>
-                <p className="text-2xl font-semibold text-gray-900">{myTeam.length}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white p-4 rounded-lg border">
-            <div className="flex items-center">
-              <CheckSquare className="w-8 h-8 text-green-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Active Tasks</p>
-                <p className="text-2xl font-semibold text-gray-900">{getTeamMemberTasks().length}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white p-4 rounded-lg border">
-            <div className="flex items-center">
-              <FolderOpen className="w-8 h-8 text-purple-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Projects</p>
-                <p className="text-2xl font-semibold text-gray-900">{projects.length}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white p-4 rounded-lg border">
-            <div className="flex items-center">
-              <UserPlus className="w-8 h-8 text-orange-600" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-600">Available</p>
-                <p className="text-2xl font-semibold text-gray-900">{availableEmployees.length}</p>
-              </div>
+            <div className="flex items-center text-sm text-gray-600">
+              <Filter className="w-4 h-4 mr-1" />
+              {filteredEmployees.length} employees
             </div>
           </div>
         </div>
-      )}
 
-      {/* Employees List */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Team Members</h3>
-        </div>
-        
-        <div className="divide-y divide-gray-200">
-          {filteredEmployees.map((employee) => {
-            const employeeTasks = getEmployeeTasks(employee._id);
-            const isSelected = selectedEmployees.includes(employee._id);
-            const isExpanded = expandedEmployee === employee._id;
-            const isMyTeamMember = myTeam.some(m => m._id === employee._id);
-            
-            return (
-              <div key={employee._id} className="px-6 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedEmployees([...selectedEmployees, employee._id]);
-                        } else {
-                          setSelectedEmployees(selectedEmployees.filter(id => id !== employee._id));
-                        }
-                      }}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    
-                    <div className="ml-4 flex items-center">
-                      <User className="w-10 h-10 text-gray-400 bg-gray-100 rounded-full p-2" />
-                      <div className="ml-3">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900">{employee.name}</p>
-                          {isMyTeamMember && (
-                            <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
-                              Team Member
-                            </span>
-                          )}
-                          {employee.status === 'available' && (
-                            <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
-                              Available
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-600">{employee.email}</p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-4">
-                    <div className="text-center">
-                      <p className="text-sm font-medium text-gray-900">{employeeTasks.length}</p>
-                      <p className="text-xs text-gray-600">Tasks</p>
-                    </div>
-                    
-                    <button
-                      onClick={() => setExpandedEmployee(isExpanded ? null : employee._id)}
-                      className="text-gray-400 hover:text-gray-600"
-                    >
-                      {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                    </button>
-                  </div>
+        {user.role === 'teamlead' && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-lg border">
+              <div className="flex items-center">
+                <Users className="w-8 h-8 text-blue-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Team Size</p>
+                  <p className="text-2xl font-semibold text-gray-900">{myTeam.length}</p>
                 </div>
-                
-                {isExpanded && employeeTasks.length > 0 && (
-                  <div className="mt-4 ml-14 space-y-2">
-                    <h4 className="text-sm font-medium text-gray-700">Assigned Tasks:</h4>
-                    {employeeTasks.map((task) => (
-                      <div key={task._id} className="bg-gray-50 p-3 rounded-md">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{task.title}</p>
-                            <p className="text-xs text-gray-600 mt-1">{task.description}</p>
-                            {task.project && (
-                              <p className="text-xs text-blue-600 mt-1">
-                                Project: {task.project.projectName}
-                              </p>
-                            )}
-                          </div>
-                          
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
-                              {task.status}
-                            </span>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
-                              {task.priority}
-                            </span>
-                            
-                            <select
-                              value={task.status}
-                              onChange={(e) => updateTaskStatus(task._id, e.target.value)}
-                              className="ml-2 text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="in-progress">In Progress</option>
-                              <option value="review">Review</option>
-                              <option value="completed">Completed</option>
-                              <option value="blocked">Blocked</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-            );
-          })}
-        </div>
-        
-        {filteredEmployees.length === 0 && (
-          <div className="px-6 py-12 text-center">
-            <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-600">No employees found</p>
+            </div>
+            
+            <div className="bg-white p-4 rounded-lg border">
+              <div className="flex items-center">
+                <CheckSquare className="w-8 h-8 text-green-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Active Tasks</p>
+                  <p className="text-2xl font-semibold text-gray-900">{getTeamMemberTasks().length}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white p-4 rounded-lg border">
+              <div className="flex items-center">
+                <FolderOpen className="w-8 h-8 text-purple-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Projects</p>
+                  <p className="text-2xl font-semibold text-gray-900">{projects.length}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white p-4 rounded-lg border">
+              <div className="flex items-center">
+                <UserPlus className="w-8 h-8 text-orange-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-600">Available</p>
+                  <p className="text-2xl font-semibold text-gray-900">{availableEmployees.length}</p>
+                </div>
+              </div>
+            </div>
           </div>
         )}
+
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-medium text-gray-900">
+              {filterStatus === 'my-team' ? 'My Team Members' : 
+               filterStatus === 'available' ? 'Available Employees' : 
+               'All Employees'}
+            </h3>
+          </div>
+          
+          <div className="divide-y divide-gray-200">
+            {filteredEmployees.length > 0 ? (
+              filteredEmployees.map((employee) => {
+                const employeeTasks = getEmployeeTasks(employee._id);
+                const isSelected = selectedEmployees.includes(employee._id);
+                const isExpanded = expandedEmployee === employee._id;
+                const isMyTeamMember = myTeam.some(m => m._id === employee._id);
+                const isAvailable = availableEmployees.some(m => m._id === employee._id);
+                
+                return (
+                  <div key={employee._id} className="px-6 py-4 hover:bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedEmployees([...selectedEmployees, employee._id]);
+                            } else {
+                              setSelectedEmployees(selectedEmployees.filter(id => id !== employee._id));
+                            }
+                          }}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        
+                        <div className="ml-4 flex items-center">
+                          <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                            <User className="w-6 h-6 text-gray-600" />
+                          </div>
+                          <div className="ml-3">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium text-gray-900">{employee.name}</p>
+                              {isMyTeamMember && (
+                                <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-medium">
+                                  My Team
+                                </span>
+                              )}
+                              {isAvailable && !isMyTeamMember && (
+                                <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">
+                                  Available
+                                </span>
+                              )}
+                              {!isAvailable && !isMyTeamMember && (
+                                <span className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded-full font-medium">
+                                  Other Team
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600">{employee.email}</p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-4">
+                        <div className="text-center">
+                          <p className="text-sm font-medium text-gray-900">{employeeTasks.length}</p>
+                          <p className="text-xs text-gray-600">Tasks</p>
+                        </div>
+                        
+                        <button
+                          onClick={() => setExpandedEmployee(isExpanded ? null : employee._id)}
+                          className="text-gray-400 hover:text-gray-600 p-1 rounded"
+                        >
+                          {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {isExpanded && employeeTasks.length > 0 && (
+                      <div className="mt-4 ml-14 space-y-2">
+                        <h4 className="text-sm font-medium text-gray-700">Assigned Tasks:</h4>
+                        {employeeTasks.map((task) => (
+                          <div key={task._id} className="bg-gray-50 p-3 rounded-md">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-gray-900">{task.title}</p>
+                                <p className="text-xs text-gray-600 mt-1 line-clamp-2">{task.description}</p>
+                                {task.project && (
+                                  <p className="text-xs text-blue-600 mt-1">
+                                    Project: {task.project.projectName}
+                                  </p>
+                                )}
+                              </div>
+                              
+                              <div className="flex items-center gap-2 ml-4">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
+                                  {task.status}
+                                </span>
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
+                                  {task.priority}
+                                </span>
+                                
+                                <select
+                                  value={task.status}
+                                  onChange={(e) => updateTaskStatus(task._id, e.target.value)}
+                                  disabled={actionLoading}
+                                  className="ml-2 text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                                >
+                                  <option value="pending">Pending</option>
+                                  <option value="in-progress">In Progress</option>
+                                  <option value="review">Review</option>
+                                  <option value="completed">Completed</option>
+                                  <option value="blocked">Blocked</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {isExpanded && employeeTasks.length === 0 && (
+                      <div className="mt-4 ml-14 text-sm text-gray-500 italic">
+                        No tasks assigned to this employee
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="px-6 py-12 text-center">
+                <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600 font-medium">
+                  {filterStatus === 'my-team' ? 'No team members found' :
+                   filterStatus === 'available' ? 'No available employees found' :
+                   'No employees found'}
+                </p>
+                <p className="text-gray-500 text-sm mt-2">
+                  {filterStatus === 'my-team' ? 
+                    'Add employees to your team using the "Assign to Team" button.' :
+                    filterStatus === 'available' ? 
+                    'All employees may already be assigned to teams.' :
+                    searchTerm ? 'Try adjusting your search term.' : 'No employees are registered in the system.'
+                  }
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-
-
-  // Enhanced Project Overview View
+  // Project Overview View
   const ProjectOverviewView = () => (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -858,12 +864,6 @@ const TeamManagementView = () => (
           <h2 className="text-xl font-semibold text-gray-900">Project Overview</h2>
           <p className="text-gray-600">Detailed view of projects with tasks and team assignments</p>
         </div>
-        {/* <div className="flex gap-2">
-          <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
-            <Plus className="w-4 h-4" />
-            New Project
-          </button>
-        </div> */}
       </div>
 
       <div className="grid gap-6">
@@ -988,6 +988,7 @@ const TeamManagementView = () => (
     </div>
   );
 
+  // Access control
   if (!user || !['admin', 'teamlead'].includes(user.role)) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1001,7 +1002,6 @@ const TeamManagementView = () => (
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Enhanced Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex justify-between items-center">
           <div>
@@ -1040,7 +1040,6 @@ const TeamManagementView = () => (
       </div>
 
       <div className="px-6 py-6">
-        {/* Error/Success Messages */}
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center shadow-sm">
             <AlertTriangle className="w-5 h-5 mr-2" />
@@ -1055,7 +1054,6 @@ const TeamManagementView = () => (
           </div>
         )}
 
-        {/* Enhanced Tabs */}
         <div className="bg-white rounded-lg border mb-6 p-1">
           <nav className="flex space-x-1">
             <button
@@ -1094,7 +1092,6 @@ const TeamManagementView = () => (
           </nav>
         </div>
 
-        {/* Loading State */}
         {loading && (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
@@ -1104,7 +1101,6 @@ const TeamManagementView = () => (
           </div>
         )}
 
-        {/* Tab Content */}
         {!loading && (
           <>
             {activeTab === 'dashboard' && <DashboardView />}
@@ -1113,7 +1109,6 @@ const TeamManagementView = () => (
           </>
         )}
 
-        {/* Enhanced Task Assignment Modal */}
         {showTaskModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
@@ -1204,10 +1199,10 @@ const TeamManagementView = () => (
                       onChange={(e) => setTaskForm({...taskForm, priority: e.target.value})}
                       className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
                     >
-                      <option value="low">🟢 Low Priority</option>
-                      <option value="medium">🟡 Medium Priority</option>
-                      <option value="high">🟠 High Priority</option>
-                      <option value="urgent">🔴 Urgent</option>
+                      <option value="low">Low Priority</option>
+                      <option value="medium">Medium Priority</option>
+                      <option value="high">High Priority</option>
+                      <option value="urgent">Urgent</option>
                     </select>
                   </div>
 
