@@ -12,9 +12,9 @@ const connectDB = async () => {
   }
 
   // If MongoDB URI is not provided
-  if (!process.env.MONGODB_URI) {
-    console.error(" MONGODB_URI environment variable is not defined");
-    throw new Error("MONGODB_URI environment variable is not defined");
+  if (!process.env.MONGO_URI) {
+    console.error(" MONGO_URI environment variable is not defined");
+    throw new Error("MONGO_URI environment variable is not defined");
   }
 
   try {
@@ -31,7 +31,7 @@ const connectDB = async () => {
       family: 4 // Use IPv4, skip trying IPv6
     };
 
-    const conn = await mongoose.connect(process.env.MONGODB_URI, opts);
+    const conn = await mongoose.connect(process.env.MONGO_URI, opts);
     
     cachedConnection = conn;
     console.log(` MongoDB Connected: ${conn.connection.host}`);
@@ -45,4 +45,5 @@ const connectDB = async () => {
 };
 
 export default connectDB;
+
 
