@@ -57,7 +57,7 @@ app.use(
       "http://localhost:5173",
       "http://localhost:3000",
       // Add your Vercel frontend URL here once deployed
-      "https://your-frontend-domain.vercel.app"
+      "https://task-manage-frontend-seven.vercel.app"
     ],
     credentials: true,
   })
@@ -188,3 +188,4 @@ if (!process.env.VERCEL) {
 
 // Always export the app for Vercel
 export default app;
+
