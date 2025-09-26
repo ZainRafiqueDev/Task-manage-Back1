@@ -7,18 +7,18 @@ let cachedConnection = null;
 const connectDB = async () => {
   // If we have a cached connection and it's ready, use it
   if (cachedConnection && mongoose.connection.readyState === 1) {
-    console.log("✅ Using existing database connection");
+    console.log(" Using existing database connection");
     return cachedConnection;
   }
 
   // If MongoDB URI is not provided
   if (!process.env.MONGODB_URI) {
-    console.error("❌ MONGODB_URI environment variable is not defined");
+    console.error(" MONGODB_URI environment variable is not defined");
     throw new Error("MONGODB_URI environment variable is not defined");
   }
 
   try {
-    console.log("🔄 Creating new database connection...");
+    console.log(" Creating new database connection...");
     
     const opts = {
       bufferCommands: false, // Disable mongoose buffering
@@ -34,14 +34,15 @@ const connectDB = async () => {
     const conn = await mongoose.connect(process.env.MONGODB_URI, opts);
     
     cachedConnection = conn;
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    console.log(` MongoDB Connected: ${conn.connection.host}`);
     
     return conn;
   } catch (error) {
-    console.error("❌ Database connection error:", error.message);
+    console.error(" Database connection error:", error.message);
     // Don't exit process in serverless environment
     throw error;
   }
 };
 
 export default connectDB;
+
