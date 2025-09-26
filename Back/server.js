@@ -23,6 +23,7 @@ import employeeRoutes from "./routes/employeeRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import notifcationRoutes from "./routes/notifcationRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
+import testRoutes from './routes/testRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -151,6 +152,7 @@ app.use("/api/employee", employeeRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/notifications", notifcationRoutes);
 app.use("/api/users", userRoutes);
+app.use('/api/test', testRoutes);
 
 /* ---------------- ERROR HANDLING ---------------- */
 
@@ -188,4 +190,5 @@ if (!process.env.VERCEL) {
 
 // Always export the app for Vercel
 export default app;
+
 
