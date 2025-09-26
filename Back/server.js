@@ -24,13 +24,27 @@ import reportRoutes from "./routes/reportRoutes.js";
 import notifcationRoutes from "./routes/notifcationRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 
+// Load environment variables
 dotenv.config();
-connectDB();
 
 const app = express();
 
+// Connect to database with error handling
+let dbConnected = false;
+try {
+  await connectDB();
+  dbConnected = true;
+} catch (error) {
+  console.error("Failed to connect to database:", error.message);
+  // Don't exit in serverless environment, but track connection status
+}
+
 app.get("/", (req, res) => {
-  res.send("API is running now..");
+  res.status(200).json({
+    message: "API is running now..",
+    database: dbConnected ? "Connected" : "Disconnected",
+    timestamp: new Date().toISOString()
+  });
 });
 
 /* ---------------- MIDDLEWARE ---------------- */
@@ -57,12 +71,12 @@ app.use(
   })
 );
 
-// Rate limiting
+// Rate limiting (reduce for serverless)
 if (process.env.NODE_ENV === "production") {
   app.use(
     rateLimit({
       windowMs: 15 * 60 * 1000,
-      max: 100,
+      max: 50, // Reduced for serverless
       message: "Too many requests from this IP, please try again later.",
     })
   );
@@ -85,12 +99,46 @@ if (process.env.NODE_ENV === "development") {
 
 /* ---------------- ROUTES ---------------- */
 
-app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    status: "OK",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
+app.get("/api/health", async (req, res) => {
+  try {
+    // Try to reconnect if database is not connected
+    if (!dbConnected) {
+      await connectDB();
+      dbConnected = true;
+    }
+    
+    res.status(200).json({
+      status: "OK",
+      database: "Connected",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "Error",
+      database: "Disconnected",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Database middleware - ensure connection before handling routes
+app.use(async (req, res, next) => {
+  try {
+    if (!dbConnected) {
+      await connectDB();
+      dbConnected = true;
+    }
+    next();
+  } catch (error) {
+    console.error("Database connection error:", error.message);
+    res.status(500).json({
+      success: false,
+      message: "Database connection failed",
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error"
+    });
+  }
 });
 
 app.use("/api/auth", authRoutes);
