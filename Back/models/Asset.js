@@ -66,7 +66,7 @@ const assetSchema = new mongoose.Schema(
 
 
 // Indexes
-assetSchema.index({ serialNumber: 1 });
+
 assetSchema.index({ assignedTo: 1 });
 assetSchema.index({ assignmentStatus: 1 });
 assetSchema.index({ returnStatus: 1 });
@@ -99,3 +99,4 @@ assetSchema.methods.approveReturn = function (adminId) {
 };
 
 export default mongoose.model("Asset", assetSchema);
+
