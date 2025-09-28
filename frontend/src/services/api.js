@@ -5,7 +5,7 @@ const API_BASE_URL = process.env.VITE_API_URL || "https://task-manage-frontend-s
 
 
 const api = axios.create({
-  baseURL: API_BASE_URL
+  baseURL: API_BASE_URL,
   timeout: 10000,
   headers: {
     "Content-Type": "application/json",
@@ -25,4 +25,5 @@ api.interceptors.response.use(
 );
 
 export default api;
+
 
