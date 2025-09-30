@@ -74,13 +74,11 @@ app.use(
 
 // Rate limiting (reduce for serverless)
 if (process.env.NODE_ENV === "production") {
-  app.use(
-    rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 50, // Reduced for serverless
-      message: "Too many requests from this IP, please try again later.",
-    })
-  );
+ app.use(cors({
+  origin: "https://task-manage-back1-fke5.vercel.app",
+  credentials: true
+}));
+
 }
 
 // Body parsing
@@ -190,6 +188,7 @@ if (!process.env.VERCEL) {
 
 // Always export the app for Vercel
 export default app;
+
 
 
 
